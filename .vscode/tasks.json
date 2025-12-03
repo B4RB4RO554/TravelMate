@@ -1,0 +1,73 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Android Debug APK",
+      "type": "shell",
+      "command": "${workspaceFolder}/TravelMate/android/gradlew",
+      "args": [
+        "assembleDebug",
+        "-p",
+        "${workspaceFolder}/TravelMate/android"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Clean Android Build",
+      "type": "shell",
+      "command": "${workspaceFolder}/TravelMate/android/gradlew",
+      "args": [
+        "clean",
+        "-p",
+        "${workspaceFolder}/TravelMate/android"
+      ],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install Debug APK",
+      "type": "shell",
+      "command": "${workspaceFolder}/TravelMate/android/gradlew",
+      "args": [
+        "installDebug",
+        "-p",
+        "${workspaceFolder}/TravelMate/android"
+      ],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Backend Server",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "start"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/TravelMate/server"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

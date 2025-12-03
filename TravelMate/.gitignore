@@ -1,0 +1,13 @@
+# ==== Node.js ====
+node_modules/
+.env
+
+# ==== Android Studio ====
+*.iml
+.gradle/
+.idea/
+local.properties
+.DS_Store
+/build/
+android/.gradle/
+android/app/build/

@@ -1,0 +1,186 @@
+package tn.bidpaifusion.travelmatekotlin.notifications
+
+import android.content.Context
+import android.util.Log
+import androidx.work.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.TimeUnit
+
+/**
+ * WorkManager worker that checks for flight status changes
+ * Uses mock data by default (integrate with real flight API in production)
+ */
+class FlightStatusWorker(
+    context: Context,
+    params: WorkerParameters
+) : CoroutineWorker(context, params) {
+
+    companion object {
+        private const val TAG = "FlightStatusWorker"
+        const val WORK_NAME = "flight_status_worker"
+        
+        // Input data keys
+        const val KEY_FLIGHT_NUMBER = "flight_number"
+        const val KEY_TRIP_ID = "trip_id"
+        const val KEY_DESTINATION = "destination"
+
+        /**
+         * Schedule periodic flight status checks (every 2 hours)
+         */
+        fun schedule(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val periodicWorkRequest = PeriodicWorkRequestBuilder<FlightStatusWorker>(
+                2, TimeUnit.HOURS
+            )
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodicWorkRequest
+            )
+        }
+
+        /**
+         * Check specific flight immediately
+         */
+        fun checkFlight(context: Context, flightNumber: String, tripId: String, destination: String) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val inputData = Data.Builder()
+                .putString(KEY_FLIGHT_NUMBER, flightNumber)
+                .putString(KEY_TRIP_ID, tripId)
+                .putString(KEY_DESTINATION, destination)
+                .build()
+
+            val workRequest = OneTimeWorkRequestBuilder<FlightStatusWorker>()
+                .setConstraints(constraints)
+                .setInputData(inputData)
+                .build()
+
+            WorkManager.getInstance(context).enqueue(workRequest)
+        }
+
+        /**
+         * Cancel scheduled flight status checks
+         */
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        }
+    }
+
+    override suspend fun doWork(): Result {
+        return try {
+            Log.d(TAG, "Starting flight status check")
+
+            val notificationHelper = NotificationHelper(applicationContext)
+            
+            // Get flight data from input if provided
+            val flightNumber = inputData.getString(KEY_FLIGHT_NUMBER)
+            val tripId = inputData.getString(KEY_TRIP_ID)
+            val destination = inputData.getString(KEY_DESTINATION)
+
+            if (flightNumber != null && tripId != null && destination != null) {
+                // Check specific flight
+                checkFlightStatus(notificationHelper, flightNumber, tripId, destination)
+            } else {
+                // Periodic check - would normally check saved flights
+                // For demo, show a mock check
+                Log.d(TAG, "No specific flight to check, periodic check completed")
+            }
+
+            Result.success()
+        } catch (e: Exception) {
+            Log.e(TAG, "Flight status check failed", e)
+            Result.failure()
+        }
+    }
+
+    private suspend fun checkFlightStatus(
+        notificationHelper: NotificationHelper,
+        flightNumber: String,
+        tripId: String,
+        destination: String
+    ) = withContext(Dispatchers.IO) {
+        try {
+            // In production, integrate with a real flight API like:
+            // - AeroDataBox
+            // - FlightAware
+            // - Aviation Edge
+            // - AviationStack
+            
+            val flightStatus = fetchFlightStatus(flightNumber)
+            
+            flightStatus?.let { status ->
+                if (status.hasChanges) {
+                    notificationHelper.showFlightChangeNotification(
+                        flightNumber = flightNumber,
+                        changeType = status.changeType,
+                        oldValue = status.oldValue,
+                        newValue = status.newValue,
+                        destination = destination
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking flight $flightNumber", e)
+        }
+    }
+
+    private fun fetchFlightStatus(flightNumber: String): FlightStatus? {
+        // Mock implementation - replace with real API
+        // This demonstrates the structure for handling flight changes
+        
+        // Simulate random flight status changes for demo
+        val random = java.util.Random()
+        val hasChange = random.nextInt(10) > 7 // 20% chance of change
+        
+        return if (hasChange) {
+            val changeTypes = listOf(
+                FlightStatus(
+                    hasChanges = true,
+                    changeType = "Delayed",
+                    oldValue = "14:30",
+                    newValue = "15:45"
+                ),
+                FlightStatus(
+                    hasChanges = true,
+                    changeType = "Gate Changed",
+                    oldValue = "B12",
+                    newValue = "C7"
+                ),
+                FlightStatus(
+                    hasChanges = true,
+                    changeType = "Terminal Changed",
+                    oldValue = "Terminal 1",
+                    newValue = "Terminal 2"
+                )
+            )
+            changeTypes[random.nextInt(changeTypes.size)]
+        } else {
+            FlightStatus(
+                hasChanges = false,
+                changeType = "On Time",
+                oldValue = "",
+                newValue = ""
+            )
+        }
+    }
+
+    data class FlightStatus(
+        val hasChanges: Boolean,
+        val changeType: String,
+        val oldValue: String,
+        val newValue: String
+    )
+}

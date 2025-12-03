@@ -1,0 +1,198 @@
+package tn.bidpaifusion.travelmatekotlin.notifications
+
+import android.content.Context
+import android.util.Log
+import androidx.work.*
+import tn.bidpaifusion.travelmatekotlin.data.local.AppDatabase
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.concurrent.TimeUnit
+
+/**
+ * WorkManager worker that sends booking/activity reminders
+ * Reminds users of upcoming activities in their itinerary
+ */
+class BookingReminderWorker(
+    context: Context,
+    params: WorkerParameters
+) : CoroutineWorker(context, params) {
+
+    companion object {
+        private const val TAG = "BookingReminderWorker"
+        const val WORK_NAME = "booking_reminder_worker"
+
+        // Input data keys for specific reminders
+        const val KEY_TRIP_ID = "trip_id"
+        const val KEY_ACTIVITY_NAME = "activity_name"
+        const val KEY_VENUE = "venue"
+        const val KEY_TIME = "time"
+        const val KEY_REMINDER_ID = "reminder_id"
+
+        /**
+         * Schedule periodic booking reminder checks (every 4 hours)
+         */
+        fun schedule(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiresBatteryNotLow(true)
+                .build()
+
+            val periodicWorkRequest = PeriodicWorkRequestBuilder<BookingReminderWorker>(
+                4, TimeUnit.HOURS
+            )
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodicWorkRequest
+            )
+        }
+
+        /**
+         * Schedule a specific booking reminder
+         */
+        fun scheduleReminder(
+            context: Context,
+            tripId: String,
+            activityName: String,
+            venue: String,
+            activityTime: Long, // Unix timestamp
+            reminderMinutesBefore: Int = 60 // Default 1 hour before
+        ) {
+            val currentTime = System.currentTimeMillis()
+            val reminderTime = activityTime - (reminderMinutesBefore * 60 * 1000)
+            
+            if (reminderTime <= currentTime) {
+                Log.w(TAG, "Reminder time is in the past, skipping")
+                return
+            }
+            
+            val delay = reminderTime - currentTime
+            val reminderId = "${tripId}_${activityName.hashCode()}"
+
+            val inputData = Data.Builder()
+                .putString(KEY_TRIP_ID, tripId)
+                .putString(KEY_ACTIVITY_NAME, activityName)
+                .putString(KEY_VENUE, venue)
+                .putString(KEY_TIME, formatTime(activityTime))
+                .putString(KEY_REMINDER_ID, reminderId)
+                .build()
+
+            val workRequest = OneTimeWorkRequestBuilder<BookingReminderWorker>()
+                .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+                .setInputData(inputData)
+                .addTag(reminderId)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                reminderId,
+                ExistingWorkPolicy.REPLACE,
+                workRequest
+            )
+
+            Log.d(TAG, "Scheduled reminder for $activityName at ${formatTime(reminderTime)}")
+        }
+
+        /**
+         * Cancel a specific reminder
+         */
+        fun cancelReminder(context: Context, tripId: String, activityName: String) {
+            val reminderId = "${tripId}_${activityName.hashCode()}"
+            WorkManager.getInstance(context).cancelUniqueWork(reminderId)
+        }
+
+        /**
+         * Cancel all booking reminders
+         */
+        fun cancelAll(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        }
+
+        private fun formatTime(timestamp: Long): String {
+            val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            return dateFormat.format(Date(timestamp))
+        }
+    }
+
+    override suspend fun doWork(): Result {
+        return try {
+            Log.d(TAG, "Starting booking reminder check")
+
+            val notificationHelper = NotificationHelper(applicationContext)
+
+            // Check if this is a specific scheduled reminder
+            val activityName = inputData.getString(KEY_ACTIVITY_NAME)
+            val venue = inputData.getString(KEY_VENUE)
+            val time = inputData.getString(KEY_TIME)
+            val reminderId = inputData.getString(KEY_REMINDER_ID)
+
+            if (activityName != null && venue != null && time != null) {
+                // Send specific reminder
+                notificationHelper.showBookingReminder(
+                    activityName = activityName,
+                    venue = venue,
+                    time = time,
+                    notificationId = reminderId?.hashCode() ?: activityName.hashCode()
+                )
+                Log.d(TAG, "Sent reminder for: $activityName")
+            } else {
+                // Periodic check - check for upcoming activities
+                checkUpcomingActivities(notificationHelper)
+            }
+
+            Result.success()
+        } catch (e: Exception) {
+            Log.e(TAG, "Booking reminder check failed", e)
+            Result.failure()
+        }
+    }
+
+    private suspend fun checkUpcomingActivities(notificationHelper: NotificationHelper) {
+        val database = AppDatabase.getDatabase(applicationContext)
+        val tripDao = database.tripDao()
+
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val today = dateFormat.format(Date())
+
+        tripDao.getAllTrips().collect { trips ->
+            for (trip in trips) {
+                // Check if trip is starting today
+                if (trip.startDate == today) {
+                    // Send a general reminder for trip starting
+                    notificationHelper.showBookingReminder(
+                        activityName = "Trip to ${trip.destination}",
+                        venue = trip.destination,
+                        time = "Today",
+                        notificationId = trip.id.hashCode()
+                    )
+                }
+
+                // Parse activities from trip notes/description if available
+                // This is a simplified version - in production, you'd have
+                // a separate Activity entity with proper scheduling
+                trip.notes?.let { notes ->
+                    parseActivitiesFromNotes(notes, trip.id, notificationHelper)
+                }
+            }
+        }
+    }
+
+    private fun parseActivitiesFromNotes(
+        notes: String,
+        tripId: String,
+        notificationHelper: NotificationHelper
+    ) {
+        // Simple parser for activities in format: "[Activity] at [Time] - [Venue]"
+        // In production, use proper structured data
+        val activityPattern = "\\[(.+?)\\] at (\\d{1,2}:\\d{2}) - (.+)".toRegex()
+        
+        activityPattern.findAll(notes).forEach { match ->
+            val (activity, time, venue) = match.destructured
+            Log.d(TAG, "Found activity: $activity at $time in $venue")
+            
+            // Would check if activity is upcoming and send notification
+            // For now, just log it
+        }
+    }
+}

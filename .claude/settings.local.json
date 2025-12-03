@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /B \"C:\\Users\\HP\\Desktop\\front\\TravelMateProject\")",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout 5 echo:*)",
+      "Bash(.gradlew build:*)",
+      "Bash(bash gradlew assembleDebug:*)",
+      "Bash(bash gradlew:*)",
+      "Bash(find:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

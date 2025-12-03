@@ -1,0 +1,16 @@
+{
+  "android.sdk.path": "D:\\Users\\OMEN\\AppData\\Local\\Android\\Sdk",
+  "android.emulator.path": "D:\\Users\\OMEN\\AppData\\Local\\Android\\Sdk\\emulator",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "C:\\Program Files\\Java\\jdk-17"
+    }
+  ],
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  "files.exclude": {
+    "**/.gradle": true,
+    "**/build": true,
+    "**/.idea": true
+  }
+}

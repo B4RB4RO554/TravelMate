@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\HP\\Desktop\\front\\TravelMateProject\\TravelMate\\android\" /B)",
+      "Bash(dir:*)",
+      "Bash(gradlew.bat assembleDebug:*)",
+      "Bash(./gradlew assembleDebug:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

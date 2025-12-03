@@ -1,0 +1,224 @@
+package tn.bidpaifusion.travelmatekotlin.notifications
+
+import android.content.Context
+import android.util.Log
+import androidx.work.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import tn.bidpaifusion.travelmatekotlin.data.local.AppDatabase
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.TimeUnit
+
+/**
+ * WorkManager worker that checks weather for trip destinations
+ * and sends alerts for extreme conditions
+ */
+class WeatherCheckWorker(
+    context: Context,
+    params: WorkerParameters
+) : CoroutineWorker(context, params) {
+
+    companion object {
+        private const val TAG = "WeatherCheckWorker"
+        const val WORK_NAME = "weather_check_worker"
+        
+        // OpenWeatherMap API (free tier)
+        // User should replace with their own API key
+        private const val WEATHER_API_KEY = "YOUR_API_KEY"
+        private const val WEATHER_BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+
+        // Weather condition thresholds
+        private const val EXTREME_TEMP_HIGH = 40 // Celsius
+        private const val EXTREME_TEMP_LOW = -10 // Celsius
+        private const val HEAVY_RAIN_THRESHOLD = 50 // mm
+        private const val STRONG_WIND_THRESHOLD = 20 // m/s
+
+        /**
+         * Schedule periodic weather checks (every 6 hours)
+         */
+        fun schedule(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiresBatteryNotLow(true)
+                .build()
+
+            val periodicWorkRequest = PeriodicWorkRequestBuilder<WeatherCheckWorker>(
+                6, TimeUnit.HOURS
+            )
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodicWorkRequest
+            )
+        }
+
+        /**
+         * Run weather check immediately
+         */
+        fun runNow(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+
+            val workRequest = OneTimeWorkRequestBuilder<WeatherCheckWorker>()
+                .setConstraints(constraints)
+                .build()
+
+            WorkManager.getInstance(context).enqueue(workRequest)
+        }
+
+        /**
+         * Cancel scheduled weather checks
+         */
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        }
+    }
+
+    override suspend fun doWork(): Result {
+        return try {
+            Log.d(TAG, "Starting weather check")
+
+            val database = AppDatabase.getDatabase(applicationContext)
+            val tripDao = database.tripDao()
+            val notificationHelper = NotificationHelper(applicationContext)
+
+            // Get active trips (within next 7 days)
+            tripDao.getAllTrips().collect { trips ->
+                for (trip in trips) {
+                    try {
+                        val weather = fetchWeather(trip.destination)
+                        weather?.let {
+                            checkAndNotifyWeather(notificationHelper, trip.id, trip.destination, it)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error checking weather for ${trip.destination}", e)
+                    }
+                }
+            }
+
+            Log.d(TAG, "Weather check completed")
+            Result.success()
+        } catch (e: Exception) {
+            Log.e(TAG, "Weather check failed", e)
+            Result.failure()
+        }
+    }
+
+    private suspend fun fetchWeather(city: String): WeatherData? = withContext(Dispatchers.IO) {
+        try {
+            // Skip if no API key configured
+            if (WEATHER_API_KEY == "YOUR_API_KEY") {
+                Log.w(TAG, "Weather API key not configured, using mock data")
+                return@withContext getMockWeatherData(city)
+            }
+
+            val url = URL("$WEATHER_BASE_URL?q=$city&appid=$WEATHER_API_KEY&units=metric")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val response = connection.inputStream.bufferedReader().readText()
+                parseWeatherResponse(response)
+            } else {
+                Log.e(TAG, "Weather API error: ${connection.responseCode}")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch weather for $city", e)
+            getMockWeatherData(city)
+        }
+    }
+
+    private fun parseWeatherResponse(json: String): WeatherData {
+        val jsonObject = JSONObject(json)
+        val main = jsonObject.getJSONObject("main")
+        val weather = jsonObject.getJSONArray("weather").getJSONObject(0)
+        val wind = jsonObject.getJSONObject("wind")
+        
+        val rain = if (jsonObject.has("rain")) {
+            jsonObject.getJSONObject("rain").optDouble("1h", 0.0)
+        } else 0.0
+
+        return WeatherData(
+            temperature = main.getDouble("temp"),
+            condition = weather.getString("main"),
+            description = weather.getString("description"),
+            humidity = main.getInt("humidity"),
+            windSpeed = wind.getDouble("speed"),
+            rainVolume = rain
+        )
+    }
+
+    private fun getMockWeatherData(city: String): WeatherData {
+        // Mock data for testing without API key
+        return WeatherData(
+            temperature = 25.0,
+            condition = "Clear",
+            description = "clear sky",
+            humidity = 60,
+            windSpeed = 5.0,
+            rainVolume = 0.0
+        )
+    }
+
+    private fun checkAndNotifyWeather(
+        notificationHelper: NotificationHelper,
+        tripId: String,
+        destination: String,
+        weather: WeatherData
+    ) {
+        val alerts = mutableListOf<String>()
+
+        // Check for extreme temperatures
+        if (weather.temperature >= EXTREME_TEMP_HIGH) {
+            alerts.add("🌡️ Extreme heat: ${weather.temperature.toInt()}°C")
+        } else if (weather.temperature <= EXTREME_TEMP_LOW) {
+            alerts.add("❄️ Extreme cold: ${weather.temperature.toInt()}°C")
+        }
+
+        // Check for heavy rain
+        if (weather.rainVolume >= HEAVY_RAIN_THRESHOLD) {
+            alerts.add("🌧️ Heavy rainfall expected")
+        }
+
+        // Check for strong winds
+        if (weather.windSpeed >= STRONG_WIND_THRESHOLD) {
+            alerts.add("💨 Strong winds: ${weather.windSpeed.toInt()} m/s")
+        }
+
+        // Check for severe conditions
+        val severeConditions = listOf("Thunderstorm", "Tornado", "Hurricane", "Extreme")
+        if (weather.condition in severeConditions) {
+            alerts.add("⚠️ ${weather.condition}: ${weather.description}")
+        }
+
+        // Send notification if there are alerts
+        if (alerts.isNotEmpty()) {
+            notificationHelper.showWeatherAlert(
+                destination = destination,
+                weatherCondition = weather.condition,
+                temperature = "${weather.temperature.toInt()}°C",
+                alertDetails = alerts.joinToString("\n")
+            )
+        }
+
+        Log.d(TAG, "Weather for $destination: ${weather.temperature}°C, ${weather.condition}, alerts: ${alerts.size}")
+    }
+
+    data class WeatherData(
+        val temperature: Double,
+        val condition: String,
+        val description: String,
+        val humidity: Int,
+        val windSpeed: Double,
+        val rainVolume: Double
+    )
+}
