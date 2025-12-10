@@ -1,13 +1,66 @@
 # ==== Node.js ====
 node_modules/
 .env
+.env.local
+.env.*.local
+package-lock.json
+yarn.lock
 
-# ==== Android Studio ====
+# ==== Android Studio & IDE ====
 *.iml
 .gradle/
 .idea/
+*.apk
+*.ap_
+*.dex
+*.class
 local.properties
 .DS_Store
 /build/
+/captures/
+.externalNativeBuild
+.cxx/
+
+# ==== Android Build ====
 android/.gradle/
 android/app/build/
+android/.idea/
+android/local.properties
+
+# ==== Gradle ====
+/.gradle
+.gradle
+gradlew
+gradlew.bat
+
+# ==== IDE Specific ====
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# ==== OS Files ====
+.DS_Store
+Thumbs.db
+ehthumbs.db
+.AppleDouble
+.LSOverride
+
+# ==== Miscellaneous ====
+*.log
+*.ipr
+*.iws
+*.iml
+.history/
+.venv/
+venv/
+env/
+.env.example
+temp/
+tmp/
